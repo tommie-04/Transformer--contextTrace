@@ -1,81 +1,110 @@
-# Mini Assistant Axis
+# ContextTrace
 
-A lightweight interpretability pipeline for analyzing persona-related directions in the hidden states of GPT-2-style language models.
+**Tracing how a causal Transformer retrieves the relevant fact from context.**
 
-## Overview
+ContextTrace is a lightweight mechanistic-interpretability project for studying **contextual fact retrieval** in GPT-2-style language models.
 
-Mini Assistant Axis extracts hidden-state representations from a GPT-2-style language model and constructs a contrastive activation direction — the *assistant axis* — that separates standard assistant-style responses from roleplay-style (persona-shifted) responses. Any new model response is pooled into a single vector and projected onto this axis, producing a scalar score that measures how closely the response sits near the model default assistant-like style. The pipeline also includes PCA visualization, projection-score analysis, threshold-based label prediction, and a logistic-regression probe that compares a learned classifier direction with the mean-difference axis.
+## Research question
 
-The project implements, on a small laptop-runnable model, the central idea of the Assistant Axis work from Anthropic (Lu et al., 2026): a dominant direction in hidden-state space tracks how far a model has drifted from its default Assistant persona. The original study maps a persona space over 275 role archetypes on 27B–70B models; this repository demonstrates the same core mechanism with a two-group contrast (assistant vs roleplay) on `distilgpt2`.
+Given several facts in the prompt and a query that refers to one of them:
+
+```text
+Alice's code is blue.
+Bob's code is green.
+Charlie's code is red.
+
+Bob's code is
+```
+
+how does the model select the relevant fact and use it to predict `green`?
+
+ContextTrace compares two kinds of evidence across **Transformer layer × token position**:
+
+1. **Decodability** — can the correct answer be recovered from the hidden representation with a simple probe?
+2. **Causal influence** — does intervening on that activation change the model's preference for the correct answer?
+
+The central question is:
+
+> **Does where information is decodable match where it is causally important for prediction?**
 
 ## Method
 
-1. **Data** — two labeled prompt groups, `assistant` and `roleplay`, plus an unlabeled evaluation set.
-2. **Response generation** — `distilgpt2` via HuggingFace Transformers, with configurable `temperature`, `top_p`, `max_new_tokens`, and random seed.
-3. **Hidden-state extraction** — hidden states read from a selected transformer layer; token-level states are pooled (mean / last-token / last-k) into one vector per response.
-4. **Axis construction** — `assistant_axis = normalize(mean(assistant_vectors) - mean(roleplay_vectors))`.
-5. **Scoring** — the projection of a response vector onto the normalized axis yields the assistant-style score.
-6. **Analysis** — PCA scatter of response vectors, projection-score histograms, threshold-based label prediction, and a logistic-regression probe.
+ContextTrace uses controlled synthetic and counterfactual prompts so that the relevant fact is supplied by the context rather than assumed to come from memorized world knowledge.
+
+The main analysis pipeline is:
+
+1. Construct matched multi-fact retrieval prompts with distractors and a target query.
+2. Run a GPT-2-family causal language model and collect hidden activations.
+3. Measure answer **decodability** across layers and token positions with a simple probe.
+4. Measure **causal influence** with matched activation interventions / patching.
+5. Compare the resulting decodability and causal-effect maps under controlled conditions.
+
+Attention weights, PCA, probes, and patching are treated as different forms of evidence rather than interchangeable explanations of model behavior.
 
 ## Repository structure
 
 ```text
-mini_assistant_axis/
+contexttrace/
 ├── README.md
 ├── requirements.txt
 ├── .gitignore
-├── data/
-│   ├── seed_prompts.jsonl        # 10 labeled prompts: 5 assistant, 5 roleplay
-│   └── eval_prompts.jsonl        # 5 unlabeled evaluation prompts
-└── scripts/
-    └── inference_smoke_test.py   # end-to-end inference smoke test for distilgpt2
+├── configs/             # experiment and model settings
+├── data/                # tracked prompt templates / small reproducible datasets
+├── src/
+│   ├── data/            # task construction and dataset utilities
+│   ├── model/           # model loading, inference, activation collection
+│   ├── analysis/        # probing, patching, metrics, comparison
+│   └── utils/
+├── scripts/             # reproducible experiment entry points
+├── tests/               # focused tests for core utilities
+└── results/             # selected figures / summaries used in the project
 ```
 
-Further pipeline modules (response generation, hidden-state extraction, axis construction, visualization, CLI demo) are added incrementally; see the roadmap below.
+Only files needed to run, reproduce, or understand the project belong in the public repository.
 
-## Environment setup
+## Setup
 
-Python 3.11+ with the packages listed in `requirements.txt` (`torch`, `transformers`, `accelerate`, `numpy`, `pandas`, `scikit-learn`, `matplotlib`, `tqdm`, `jupyter`). No GPU is required: `distilgpt2` (~82M parameters) runs comfortably on CPU.
+Python 3.11+ is recommended.
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Model weights are downloaded from the HuggingFace Hub on first use. To run from a local cache without network access, pass `--local-files-only`.
+## Configuration
 
-## Quick start
+Experiment settings should be kept in version-controlled configuration files under `configs/` rather than hard-coded across scripts. A typical configuration may specify:
 
-```bash
-python scripts/inference_smoke_test.py \
-    --prompt "A transformer model is" \
-    --max-new-tokens 30 \
-    --temperature 0.8
+```yaml
+model_name: distilgpt2
+seed: 42
+
+dataset:
+  template: multi_fact_codes
+  num_distractors: 2
+
+analysis:
+  metric: logit_difference
+  probe: linear
+  intervention: residual_stream_patch
 ```
 
-This loads the `distilgpt2` tokenizer and model, tokenizes the prompt, generates a continuation, and decodes it back to text. Run with `--help` to see all options (`--model-name`, `--top-p`, `--local-files-only`, and others).
+Exact fields may evolve with the implementation, but each reported result should record the model, dataset/task settings, random seed, analysis metric, and intervention configuration required to reproduce it.
 
-## Data format
+## Scope
 
-Each line of `data/*.jsonl` is one JSON object:
+The core project focuses on:
 
-```json
-{"id": "a001", "label": "assistant", "prompt": "You are a helpful AI assistant. Explain what overfitting means in machine learning in simple terms."}
-```
+- one small GPT-2-family causal language model at a time;
+- controlled contextual fact retrieval;
+- layer × token-position representations;
+- one primary decodability method;
+- one primary causal intervention method;
+- quantitative comparison between the two.
 
-- `seed_prompts.jsonl` — 10 labeled prompts (5 `assistant`, 5 `roleplay`) used to construct the axis.
-- `eval_prompts.jsonl` — 5 unlabeled prompts reserved for evaluation.
-
-## Roadmap
-
-- [ ] Response-generation pipeline (JSONL I/O, generation, command-line interface).
-- [ ] Hidden-state extraction and pooling.
-- [ ] Assistant-axis construction and projection scoring.
-- [ ] Visualization and analysis (PCA, score histograms).
-- [ ] CLI demo, logistic-regression probe, and project report.
+Head-level circuit discovery, sparse autoencoders, model editing, and cross-model generalization are outside the initial core scope.
 
 ## References
 
-- Christina Lu, Jack Gallagher, Jonathan Michala, Kyle Fish, Jack Lindsey. *The Assistant Axis: Situating and Stabilizing the Default Persona of Language Models*. arXiv:2601.10387. https://arxiv.org/abs/2601.10387
-- Anthropic Research — The assistant axis. https://www.anthropic.com/research/assistant-axis
+Methodological references and external tools are documented when they are used in the implementation or experiments.
