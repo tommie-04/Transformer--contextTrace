@@ -8,6 +8,6 @@ artifacts/
 *.npz
 .DS_Store
 
-# Local mentor-only working files (not for GitHub)
+# Local working files
 LLM_HANDOFF.md
 docs/
