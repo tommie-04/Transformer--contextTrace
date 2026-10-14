@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import argparse
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
 
 
 def parse_args() -> argparse.Namespace:
@@ -51,11 +51,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Load the model from the local HuggingFace cache without contacting the Hub.",
     )
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for generation.")
+    parser.add_argument("--greedy", action="store_true", help="Use greedy decoding.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    set_seed(args.seed)
 
     print(f"Loading tokenizer: {args.model_name}")
     tokenizer = AutoTokenizer.from_pretrained(
@@ -69,14 +72,15 @@ def main() -> None:
         local_files_only=args.local_files_only,
     )
 
+    model.eval()
     inputs = tokenizer(args.prompt, return_tensors="pt")
 
+    sampling_options = {} if args.greedy else {"temperature": args.temperature, "top_p": args.top_p}
     outputs = model.generate(
         **inputs,
         max_new_tokens=args.max_new_tokens,
-        do_sample=True,
-        temperature=args.temperature,
-        top_p=args.top_p,
+        do_sample=not args.greedy,
+        **sampling_options,
         pad_token_id=tokenizer.eos_token_id,
     )
 

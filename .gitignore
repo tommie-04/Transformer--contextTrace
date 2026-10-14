@@ -7,7 +7,3 @@ artifacts/
 *.npy
 *.npz
 .DS_Store
-
-# Local working files
-LLM_HANDOFF.md
-docs/

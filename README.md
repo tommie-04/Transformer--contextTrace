@@ -1,12 +1,10 @@
 # ContextTrace
 
-**Tracing how a causal Transformer retrieves the relevant fact from context.**
-
-ContextTrace is a lightweight mechanistic-interpretability project for studying **contextual fact retrieval** in GPT-2-style language models.
+ContextTrace studies how a causal Transformer retrieves one relevant fact from a prompt containing multiple facts.
 
 ## Research question
 
-Given several facts in the prompt and a query that refers to one of them:
+Given a prompt such as:
 
 ```text
 Alice's code is blue.
@@ -16,55 +14,28 @@ Charlie's code is red.
 Bob's code is
 ```
 
-how does the model select the relevant fact and use it to predict `green`?
+where does the answer `green` become decodable inside the model, and which internal activations causally influence that prediction?
 
-ContextTrace compares two kinds of evidence across **Transformer layer × token position**:
+ContextTrace compares two measurements over the same **layer × token-position** grid:
 
-1. **Decodability** — can the correct answer be recovered from the hidden representation with a simple probe?
-2. **Causal influence** — does intervening on that activation change the model's preference for the correct answer?
-
-The central question is:
-
-> **Does where information is decodable match where it is causally important for prediction?**
+- **Decodability:** whether a linear probe can recover the correct answer from a hidden representation.
+- **Causal influence:** whether replacing an activation with one from a matched counterfactual prompt changes the model's preference for the correct answer.
 
 ## Method
 
-ContextTrace uses controlled synthetic and counterfactual prompts so that the relevant fact is supplied by the context rather than assumed to come from memorized world knowledge.
+The project uses controlled synthetic prompts to reduce confounding from memorized world knowledge. The analysis pipeline:
 
-The main analysis pipeline is:
+1. builds matched multi-fact prompts with distractors, queries, and counterfactual answers;
+2. records residual-stream activations from a GPT-2-family causal language model;
+3. measures answer decodability at each layer and token position;
+4. measures causal effects with residual-stream activation patching;
+5. compares the decodability and causal-effect maps.
 
-1. Construct matched multi-fact retrieval prompts with distractors and a target query.
-2. Run a GPT-2-family causal language model and collect hidden activations.
-3. Measure answer **decodability** across layers and token positions with a simple probe.
-4. Measure **causal influence** with matched activation interventions / patching.
-5. Compare the resulting decodability and causal-effect maps under controlled conditions.
-
-Attention weights, PCA, probes, and patching are treated as different forms of evidence rather than interchangeable explanations of model behavior.
-
-## Repository structure
-
-```text
-contexttrace/
-├── README.md
-├── requirements.txt
-├── .gitignore
-├── configs/             # experiment and model settings
-├── data/                # tracked prompt templates / small reproducible datasets
-├── src/
-│   ├── data/            # task construction and dataset utilities
-│   ├── model/           # model loading, inference, activation collection
-│   ├── analysis/        # probing, patching, metrics, comparison
-│   └── utils/
-├── scripts/             # reproducible experiment entry points
-├── tests/               # focused tests for core utilities
-└── results/             # selected figures / summaries used in the project
-```
-
-Only files needed to run, reproduce, or understand the project belong in the public repository.
+Probe accuracy and intervention effects are reported as distinct forms of evidence: decodable information is not necessarily information the model uses for its prediction.
 
 ## Setup
 
-Python 3.11+ is recommended.
+Python 3.11 or later is recommended.
 
 ```bash
 python3 -m venv .venv
@@ -72,39 +43,37 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Configuration
+## Inference check
 
-Experiment settings should be kept in version-controlled configuration files under `configs/` rather than hard-coded across scripts. A typical configuration may specify:
+The repository includes a small command-line check for model loading, tokenization, and generation:
 
-```yaml
-model_name: distilgpt2
-seed: 42
-
-dataset:
-  template: multi_fact_codes
-  num_distractors: 2
-
-analysis:
-  metric: logit_difference
-  probe: linear
-  intervention: residual_stream_patch
+```bash
+python scripts/inference_smoke_test.py \
+  --model-name distilgpt2 \
+  --prompt "Bob's code is" \
+  --greedy \
+  --max-new-tokens 10
 ```
 
-Exact fields may evolve with the implementation, but each reported result should record the model, dataset/task settings, random seed, analysis metric, and intervention configuration required to reproduce it.
+Model weights are downloaded from Hugging Face on first use. Pass `--local-files-only` to load only from the local cache.
+
+## Configuration
+
+The inference command accepts:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--model-name` | `distilgpt2` | Hugging Face causal language model |
+| `--prompt` | `Machine learning is` | Input text to continue |
+| `--max-new-tokens` | `40` | Maximum generated token count |
+| `--seed` | `42` | Random seed |
+| `--greedy` | disabled | Use deterministic greedy decoding |
+| `--temperature` | `0.8` | Sampling temperature |
+| `--top-p` | `0.95` | Nucleus-sampling threshold |
+| `--local-files-only` | disabled | Avoid Hugging Face network access |
+
+Experiment configurations added to this repository record the model, dataset construction, seed, prediction metric, probe settings, and intervention settings required to reproduce each result.
 
 ## Scope
 
-The core project focuses on:
-
-- one small GPT-2-family causal language model at a time;
-- controlled contextual fact retrieval;
-- layer × token-position representations;
-- one primary decodability method;
-- one primary causal intervention method;
-- quantitative comparison between the two.
-
-Head-level circuit discovery, sparse autoencoders, model editing, and cross-model generalization are outside the initial core scope.
-
-## References
-
-Methodological references and external tools are documented when they are used in the implementation or experiments.
+ContextTrace focuses on controlled contextual retrieval, residual-stream representations, linear probes, and residual-stream activation patching in a small GPT-2-family model. Head-level circuit discovery, sparse autoencoders, model editing, and broad cross-model benchmarking are outside the core analysis.
